@@ -3,7 +3,6 @@ use crate::LOAD_GEN_PREFIX;
 use anyhow::Result;
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{now, Clock};
-use iluvatar_library::threading::is_simulation;
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
@@ -486,7 +485,7 @@ where
         loop {
             // This is ugly, but Rust type system is weird.
             // We need tick sleep in simulation to allow background threads to keep bring executed.
-            match is_simulation() {
+            match iluvatar_library::utils::is_simulation() {
                 true => tokio::select! {
                     r = &mut h => {
                         result = r;

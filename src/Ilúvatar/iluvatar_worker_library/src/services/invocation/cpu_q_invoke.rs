@@ -15,7 +15,6 @@ use crate::worker_api::worker_config::InvocationConfig;
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
-use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::{
     threading::tokio_waiter_thread, threading::EventualItem, transaction::TransactionId, types::Compute,
@@ -159,7 +158,7 @@ impl CpuQueueingInvoker {
     ) {
         let (tx, rx) = std::sync::mpsc::channel();
         let (del_tx, mut del_rx) = tokio::sync::mpsc::unbounded_channel::<Arc<EnqueuedInvocation>>();
-        let handle = tokio_spawn_thread(async move {
+        let handle = tokio::spawn(async move {
             let tid: &TransactionId = &INVOKER_CPU_QUEUE_WORKER_TID;
             let service: Arc<Self> = match rx.recv() {
                 Ok(cm) => cm,
@@ -185,7 +184,7 @@ impl CpuQueueingInvoker {
                 };
                 #[cfg(feature = "full_spans")]
                 let td = td.instrument(span);
-                tokio_spawn_thread(td);
+                tokio::task::spawn(td);
             }
         });
 
@@ -226,7 +225,7 @@ impl CpuQueueingInvoker {
         #[cfg(feature = "full_spans")]
         {
             let span = item.span.clone();
-            let _handle = tokio_spawn_thread(
+            let _handle = tokio::spawn(
                 async move {
                     debug!(tid = item.tid, "Launching invocation thread for queued item");
                     invoker_svc.invocation_worker_thread(item, permit).await;
@@ -236,7 +235,7 @@ impl CpuQueueingInvoker {
         }
         #[cfg(not(feature = "full_spans"))]
         {
-            let _handle = tokio_spawn_thread(async move {
+            let _handle = tokio::spawn(async move {
                 debug!(tid = item.tid, "Launching invocation thread for queued item");
                 invoker_svc.invocation_worker_thread(item, permit).await;
             });
@@ -355,7 +354,7 @@ impl CpuQueueingInvoker {
             EventualItem::Now(n) => n?,
         };
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let result = invoke_on_container(
+        let (data, duration, compute_type, state) = invoke_on_container(
             &item.registration,
             &item.json_args,
             &item.tid,
@@ -369,12 +368,11 @@ impl CpuQueueingInvoker {
             &self.clock,
             &self.device_tput,
         )
-        .await;
-        // don't resolve Result of invoke, handle clean up and return as-is
+        .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         drop(permit);
         self.signal.notify_waiters();
-        result
+        Ok((data, duration, compute_type, state))
     }
 
     fn get_est_completion_time_from_containers(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {

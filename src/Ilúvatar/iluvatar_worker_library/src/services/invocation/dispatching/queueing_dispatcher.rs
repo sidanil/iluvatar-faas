@@ -3,6 +3,7 @@ use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 use crate::services::invocation::dispatching::{
     landlord::get_landlord, popular::get_popular, EnqueueingPolicy, QueueMap, NO_ESTIMATE,
 };
+use crate::services::invocation::dispatching::weighted_random::WeightedRandom;
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::queueing::gpu_mqfq::MQFQ;
@@ -311,7 +312,6 @@ impl QueueingDispatcher {
         match policy {
             EnqueueingPolicy::All => Ok(Arc::new(All {})),
             EnqueueingPolicy::Random => Ok(Arc::new(Random {})),
-            EnqueueingPolicy::WeightedRandom => Ok(Arc::new(WeightedRandom {gpu_probability: 0.7})),
             EnqueueingPolicy::AlwaysCPU => Ok(Arc::new(AlwaysCPU {})),
             EnqueueingPolicy::AlwaysGPU => Ok(Arc::new(AlwaysGPU {})),
             EnqueueingPolicy::ShortestExecTime => Ok(Arc::new(ShortestExecTime::new(cmap))),
@@ -329,6 +329,7 @@ impl QueueingDispatcher {
                 que_map,
             ))),
             EnqueueingPolicy::Speedup => Ok(Arc::new(Speedup::new(invocation_config.clone(), cmap))),
+            EnqueueingPolicy::WeightedRandom => Ok(Arc::new(WeightedRandom::new(invocation_config.clone(), &cmap, tid)?)),
             EnqueueingPolicy::Landlord
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
@@ -596,7 +597,7 @@ impl DispatchPolicy for Ucb1 {
     }
 }
 
-struct All;
+struct All; 
 impl DispatchPolicy for All {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         (reg.supported_compute, NO_ESTIMATE, NO_ESTIMATE)
@@ -608,24 +609,6 @@ impl DispatchPolicy for Random {
         // unwrap safe, has to have some compute entry to get this far
         let v: Vec<Compute> = reg.supported_compute.iter().collect();
         (*v.choose(&mut rand::rng()).unwrap(), NO_ESTIMATE, NO_ESTIMATE)
-    }
-}
-
-struct WeightedRandom{
-    gpu_probability: f64,
-}
-impl DispatchPolicy for WeightedRandom {
-    fn choose(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
-    let mut rng = rand::rng();
-    let roll: f64 = rng.random_range(0.0..1.0);
-
-    let selected = if roll < self.gpu_probability {
-        Compute::GPU
-    } else {
-        Compute::CPU
-    };
-
-    (selected, NO_ESTIMATE, NO_ESTIMATE)
     }
 }
 
@@ -1038,16 +1021,7 @@ impl Invoker for QueueingDispatcher {
 
     /// The queue length of both CPU and GPU queues
     fn queue_len(&self) -> InvokerLoad {
-        let mut running = 0;
-        let mut loads = HashMap::new();
-        for (compute, q) in self.que_map.iter() {
-            running += q.running();
-            loads.insert(*compute, q.queue_load());
-        }
-        InvokerLoad {
-            num_running_funcs: running,
-            queues: loads,
-        }
+        InvokerLoad(self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect())
     }
 
     /// The number of functions currently running

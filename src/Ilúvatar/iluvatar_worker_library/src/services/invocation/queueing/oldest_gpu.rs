@@ -104,7 +104,7 @@ mod oldest_batch {
         })
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn single_item_cold() {
         let m = worker_char_map();
         let name = "t1";
@@ -126,7 +126,7 @@ mod oldest_batch {
         assert_eq!(b.est_queue_time(), 1.5);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn two_item_mix() {
         let m = worker_char_map();
         let name = "t1";
@@ -149,7 +149,7 @@ mod oldest_batch {
         assert_eq!(b.est_queue_time(), 2.5);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn two_func_mix() {
         let m = worker_char_map();
         let name = "t1";

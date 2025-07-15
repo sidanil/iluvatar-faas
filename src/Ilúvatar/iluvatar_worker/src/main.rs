@@ -2,10 +2,9 @@ use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_library::char_map::worker_char_map;
-use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
-use iluvatar_library::{bail_error, logging::start_tracing, sync_live_scope, utils::wait_for_exit_signal};
+use iluvatar_library::{bail_error, logging::start_tracing, utils::wait_for_exit_signal};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::http::create_http_server;
@@ -37,7 +36,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     let addr = format!("{}:{}", server_config.address, server_config.port);
     info!(tid=tid, address=%addr, "Starting RPC server");
     debug!(tid=tid, config=?server_config, "Worker configuration");
-    let _j = tokio_spawn_thread(
+    let _j = tokio::spawn(
         Server::builder()
             .timeout(Duration::from_secs(server_config.timeout_sec))
             .add_service(IluvatarWorkerServer::from_arc(worker.clone()))
@@ -51,7 +50,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                 Ok(s) => s,
                 Err(e) => bail_error!(tid = tid, error = %e, "Error creating HTTP server on startup"),
             };
-            tokio_spawn_thread(async move {
+            tokio::spawn(async move {
                 if let Err(e) = http_server.run().await {
                     error!("HTTP server error: {}", e);
                 }
@@ -123,24 +122,11 @@ fn main() -> Result<()> {
     let tid: &TransactionId = &STARTUP_TID;
     let cli = Args::parse();
 
-    sync_live_scope!(|| {
-        match cli.command {
-            Some(c) => match c {
-                utils::Commands::Clean => {
-                    let overrides = vec![("networking.use_pool".to_string(), "false".to_string())];
-                    let server_config = Configuration::boxed(cli.config.as_deref(), Some(overrides))?;
-                    let _guard = start_tracing(&server_config.logging, tid)?;
-                    let worker_rt = build_tokio_runtime(
-                        &Some(server_config.tokio_event_interval),
-                        &Some(server_config.tokio_queue_interval),
-                        &None,
-                        tid,
-                    )?;
-                    worker_rt.block_on(clean(server_config, tid))
-                },
-            },
-            None => {
-                let server_config = Configuration::boxed(cli.config.as_deref(), None)?;
+    match cli.command {
+        Some(c) => match c {
+            utils::Commands::Clean => {
+                let overrides = vec![("networking.use_pool".to_string(), "false".to_string())];
+                let server_config = Configuration::boxed(cli.config.as_deref(), Some(overrides))?;
                 let _guard = start_tracing(&server_config.logging, tid)?;
                 let worker_rt = build_tokio_runtime(
                     &Some(server_config.tokio_event_interval),
@@ -148,8 +134,20 @@ fn main() -> Result<()> {
                     &None,
                     tid,
                 )?;
-                worker_rt.block_on(run(server_config, tid))
+                worker_rt.block_on(clean(server_config, tid))?;
             },
-        }
-    })
+        },
+        None => {
+            let server_config = Configuration::boxed(cli.config.as_deref(), None)?;
+            let _guard = start_tracing(&server_config.logging, tid)?;
+            let worker_rt = build_tokio_runtime(
+                &Some(server_config.tokio_event_interval),
+                &Some(server_config.tokio_queue_interval),
+                &None,
+                tid,
+            )?;
+            worker_rt.block_on(run(server_config, tid))?;
+        },
+    }
+    Ok(())
 }

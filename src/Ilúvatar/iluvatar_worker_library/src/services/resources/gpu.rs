@@ -5,7 +5,7 @@ use crate::{
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::ring_buff::{RingBuffer, Wireable};
-use iluvatar_library::threading::{is_simulation, tokio_logging_thread};
+use iluvatar_library::threading::tokio_logging_thread;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
@@ -317,7 +317,7 @@ impl GPU {
 
 const MPS_CONTAINER_NAME: &str = "iluvatar-mps-daemon";
 lazy_static::lazy_static! {
-  pub static ref GPU_RESC_TID: TransactionId = "GPU_RESC_TRACK".to_string();
+  static ref GPU_RESC_TID: TransactionId = "GPU_RESC_TRACK".to_string();
 }
 /// Struct that manages GPU control between containers
 /// A GPU can only be assigned to one container at a time, and must be returned via [GpuResourceTracker::return_gpu] after container deletion
@@ -348,7 +348,7 @@ impl GpuResourceTracker {
             }
             let (gpu_structs, metadata) = Self::prepare_structs(&config, tid)?;
             let mut nvml = None;
-            if !is_simulation() {
+            if !iluvatar_library::utils::is_simulation() {
                 match config.mig_enabled() {
                     true => Self::enable_mig(tid),
                     false => Self::disable_mig(tid),
@@ -703,7 +703,7 @@ impl GpuResourceTracker {
             info!(tid = tid, "GPU config had 0 GPUs, skipping GPU resource setup");
             return Ok((GpuCollection::new(), MetadataCollection::new()));
         }
-        let (structs, metadata) = if is_simulation() {
+        let (structs, metadata) = if iluvatar_library::utils::is_simulation() {
             Self::make_simulated_gpus(gpu_config, tid)?
         } else {
             Self::make_real_gpus(gpu_config, tid)?
@@ -1078,7 +1078,7 @@ impl GpuResourceTracker {
     /// get the utilization of GPUs on the system
     #[tracing::instrument(level = "debug", skip_all)]
     async fn gpu_utilization(self: &Arc<Self>, tid: &TransactionId) -> Result<GpuStatVec> {
-        let status = if is_simulation() {
+        let status = if iluvatar_library::utils::is_simulation() {
             self.simulation_gpu_util(tid).await
         } else if let Some(nvml) = &self.nvml {
             match self.nvml_gpu_utilization(nvml, tid).await {

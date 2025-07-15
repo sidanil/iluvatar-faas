@@ -61,7 +61,7 @@ mod memory_resource_tests {
         MemoryResourceTracker::boxed(&Arc::new(cfg))
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn correct_available_mem() {
         let track = tracker(1024, 512);
         assert_eq!(track.available_memory(), 1024 as MemSizeMb);
@@ -69,7 +69,7 @@ mod memory_resource_tests {
         assert_eq!(track.available_memory(), 512);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn checks_under_pressure() {
         let track = tracker(1024, 512);
         assert!(!track.under_pressure(), "No allocated mem is not under pressure");
@@ -77,7 +77,7 @@ mod memory_resource_tests {
         assert!(track.under_pressure(), "Enough allocation should cause pressure");
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn return_memory() {
         let track = tracker(1024, 512);
         assert!(!track.under_pressure(), "No allocated mem is not under pressure");

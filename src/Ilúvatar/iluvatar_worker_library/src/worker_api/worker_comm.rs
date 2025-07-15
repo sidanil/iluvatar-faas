@@ -2,7 +2,7 @@ use super::rpc::RPCWorkerAPI;
 use crate::worker_api::{create_worker, iluvatar_worker::IluvatarWorkerImpl, sim_worker::SimWorkerAPI, WorkerAPI};
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::threading::is_simulation;
+use iluvatar_library::utils::is_simulation;
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::port::Port};
 use std::sync::Arc;
 #[cfg(feature = "full_spans")]
@@ -14,6 +14,7 @@ pub struct WorkerAPIFactory {
     /// better than opening a new one
     rpc_apis: DashMap<String, RPCWorkerAPI>,
     sim_apis: DashMap<String, Arc<IluvatarWorkerImpl>>,
+    is_simulation: bool,
 }
 
 impl WorkerAPIFactory {
@@ -21,6 +22,7 @@ impl WorkerAPIFactory {
         Arc::new(WorkerAPIFactory {
             rpc_apis: DashMap::new(),
             sim_apis: DashMap::new(),
+            is_simulation: is_simulation(),
         })
     }
 }
@@ -58,7 +60,7 @@ impl WorkerAPIFactory {
         port: Port,
         tid: &TransactionId,
     ) -> Result<Box<dyn WorkerAPI + Send>> {
-        match is_simulation() {
+        match self.is_simulation {
             false => match self.try_get_rpcapi(worker) {
                 Some(r) => Ok(Box::new(r)),
                 None => {

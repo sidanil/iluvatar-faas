@@ -83,12 +83,11 @@ impl CompletionTimeTracker {
 #[cfg(test)]
 mod tracker_tests {
     use super::*;
-    use float_cmp::assert_approx_eq;
     use iluvatar_library::transaction::gen_tid;
     use more_asserts::{assert_gt, assert_le, assert_lt};
     use rand::Rng;
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn added_items_ordered() {
         let time = OffsetDateTime::UNIX_EPOCH;
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -118,7 +117,7 @@ mod tracker_tests {
         }
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn random_insertions_ordered() {
         let time = OffsetDateTime::UNIX_EPOCH;
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -139,7 +138,7 @@ mod tracker_tests {
         }
     }
 
-    #[iluvatar_library::live_test]
+    #[test]
     fn next_avail_changes() {
         let time = get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10);
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -148,7 +147,7 @@ mod tracker_tests {
         assert_ne!(tracker.next_avail(), tracker.next_avail());
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn single_item_works() {
         let time = get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10);
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -159,7 +158,7 @@ mod tracker_tests {
         assert_le!(time.as_seconds_f64(), 10.0);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn no_item_zero() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
@@ -167,7 +166,7 @@ mod tracker_tests {
         assert_eq!(time.as_seconds_f64(), 0.0);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn newer_item_changes() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
@@ -175,10 +174,10 @@ mod tracker_tests {
         tracker.add_item(get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(5));
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 0.0);
-        assert_approx_eq!(f64, time.as_seconds_f64(), 5.0, epsilon = 0.005);
+        assert_le!(time.as_seconds_f64(), 5.0);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn item_removal_changes() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
@@ -188,15 +187,15 @@ mod tracker_tests {
         tracker.add_item(time2);
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 0.0);
-        assert_approx_eq!(f64, time.as_seconds_f64(), 5.0, epsilon = 0.005);
+        assert_le!(time.as_seconds_f64(), 5.0);
         tracker.remove_item(time2);
 
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 5.0);
-        assert_approx_eq!(f64, time.as_seconds_f64(), 10.0, epsilon = 0.005);
+        assert_le!(time.as_seconds_f64(), 10.0);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn old_item_removed() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 

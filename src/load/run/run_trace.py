@@ -279,7 +279,6 @@ worker_kwargs = [
     ("worker_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
     ("worker_include_spans_json", False, ("logging", "include_spans_json")),
     ("worker_status_ms", 500, ("status", "report_freq_ms")),
-    ("worker_stdout", True, ("logging","stdout")),
     
     # energy
     ("ipmi_freq_ms", 0, ("energy", "ipmi_freq_ms")),
@@ -357,6 +356,8 @@ worker_kwargs = [
         False,
         ("invocation", "greedy_weight_config", "fixed_assignment"),
     ),
+    # weighted_random
+    ("gpu_probability", 0.5, ("invocation", "weighted_random_config", "gpu_probability")),
 ]
 def load_kwargs(**kwargs):
     default_kwargs = LoadConfig()

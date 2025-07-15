@@ -188,10 +188,7 @@ fn file_logger<S: Subscriber + for<'span> LookupSpan<'span>, P: AsRef<Path>>(
     with_span_list: bool,
     filter: Option<Box<dyn Filter<S> + Send + Sync + 'static>>,
     tid: &TransactionId,
-) -> Result<(
-    Box<dyn Layer<S> + Send + Sync + 'static>,
-    Box<dyn Drop + Send + Sync + 'static>,
-)> {
+) -> Result<(Box<dyn Layer<S> + Send + Sync + 'static>, Box<dyn Drop>)> {
     let fname = format!("{}.log", base_filename);
     let dir = match std::fs::canonicalize(&folder_path) {
         Ok(d) => d,
@@ -250,7 +247,7 @@ pub fn start_simulation_tracing(
     tid: &TransactionId,
 ) -> Result<impl Drop> {
     #[allow(dyn_drop)]
-    let mut drops: Vec<Box<dyn Drop + Send + Sync + 'static>> = vec![];
+    let mut drops: Vec<Box<dyn Drop>> = vec![];
     let mut layers = vec![];
 
     for worker_id in 0..num_workers {
@@ -341,7 +338,7 @@ pub fn start_simulation_tracing(
 #[allow(dyn_drop)]
 fn stdout_layer<S: Subscriber + for<'span> LookupSpan<'span>>(
     layers: &mut Vec<Box<(dyn Layer<S> + Send + Sync + 'static)>>,
-    drops: &mut Vec<Box<dyn Drop + Send + Sync + 'static>>,
+    drops: &mut Vec<Box<dyn Drop>>,
     tid: &TransactionId,
 ) -> Result<()> {
     let (stdout, guard) = tracing_appender::non_blocking(std::io::stdout());
@@ -356,13 +353,9 @@ fn stdout_layer<S: Subscriber + for<'span> LookupSpan<'span>>(
     Ok(())
 }
 
-#[allow(dyn_drop)]
-pub fn start_tracing(
-    config: &Arc<LoggingConfig>,
-    tid: &TransactionId,
-) -> Result<Box<dyn Drop + Send + Sync + 'static>> {
+pub fn start_tracing(config: &Arc<LoggingConfig>, tid: &TransactionId) -> Result<impl Drop> {
     #[allow(dyn_drop)]
-    let mut drops: Vec<Box<dyn Drop + Send + Sync + 'static>> = vec![];
+    let mut drops: Vec<Box<dyn Drop>> = vec![];
     let mut layers = vec![];
     if !config.directory.is_empty() {
         let (file_layer, guard) = file_logger(
@@ -402,12 +395,11 @@ pub fn start_tracing(
         Ok(_) => {
             panic_hook();
             info!(tid = tid, "Logger initialized");
-            Ok(Box::new(drops))
+            Ok(drops)
         },
         Err(e) => {
             warn!(tid=tid, error=%e, "Global tracing subscriber was already set");
-            #[allow(dyn_drop)]
-            Ok(Box::<Vec<Box<dyn Drop + Send + Sync + 'static>>>::new(vec![]))
+            Ok(vec![])
         },
     }
 }

@@ -12,7 +12,6 @@ use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
 use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
-use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, DroppableToken, MemSizeMb};
@@ -199,7 +198,7 @@ impl FlowQ {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
                 info!(fqdn = fname, "Flow active, trying to move memory on device");
-                tokio_spawn_thread(async move {
+                tokio::spawn(async move {
                     ctr.try_move_on_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
             }
@@ -207,7 +206,7 @@ impl FlowQ {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
                 info!(fqdn = fname, "TTL expired, moving memory off device");
-                tokio_spawn_thread(async move {
+                tokio::spawn(async move {
                     ctr.move_off_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
             }
@@ -309,17 +308,16 @@ impl FlowQ {
             return;
         }
         if self.state == MQState::Active {
-            let now = self.clock.now();
-            let ttl_remaining = (now - self.last_serviced).as_seconds_f64();
+            let ttl_remaining = (self.clock.now() - self.last_serviced).as_seconds_f64();
             let ttl = if self.ttl_sec < 0.0 {
                 self.cmap.get_avg(&self.fqdn, Chars::GpuExecTime) * f64::abs(self.ttl_sec)
             } else {
                 self.ttl_sec
             };
-            if ttl_remaining >= ttl {
+            if ttl_remaining > ttl {
                 self.update_state(MQState::Inactive);
                 // Update the active period/eviction time
-                let active_t = (now - self.active_start_t).as_seconds_f64();
+                let active_t = (self.clock.now() - self.active_start_t).as_seconds_f64();
                 let n = self.num_active_periods as f64;
                 let prev_avg = self.avg_active_t;
                 let new_avg = (n * prev_avg) + active_t / (n + 1.0);
@@ -573,7 +571,7 @@ impl MQFQ {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
             if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, tid).await {
                 let svc = self.clone();
-                tokio_spawn_thread(async move {
+                tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
                 });
             } else {
@@ -602,9 +600,9 @@ impl MQFQ {
         cpu_token: DroppableToken,
         gpu_token: GpuToken,
     ) {
+        let ct = self.clock.now();
+        self.ctrack.add_item(ct);
         if item.invoke.lock() {
-            let ct = self.clock.now();
-            self.ctrack.add_item(ct);
             #[cfg(feature = "full_spans")]
             let fut = self
                 .invoke(&item.invoke, cpu_token, gpu_token)
@@ -630,14 +628,14 @@ impl MQFQ {
                     if let Some(ctr) = container {
                         if self.gpu_config.send_driver_memory_hints() {
                             let t = item.invoke.tid.clone();
-                            tokio_spawn_thread(async move { ctr.move_from_device(&t).await });
+                            tokio::spawn(async move { ctr.move_from_device(&t).await });
                         }
                     }
                 }
             }
-            self.signal.notify_waiters();
-            self.ctrack.remove_item(ct);
         }
+        self.signal.notify_waiters();
+        self.ctrack.remove_item(ct);
     }
 
     /// Handle an error with the given enqueued invocation.
@@ -668,7 +666,7 @@ impl MQFQ {
         if diff < 0 {
             let t = tid.clone();
             let ctr_man = self.cont_manager.clone();
-            tokio_spawn_thread(async move { ctr_man.make_room_on_gpu(t, -diff, gpu_id).await });
+            tokio::spawn(async move { ctr_man.make_room_on_gpu(t, -diff, gpu_id).await });
         }
         memory
     }
@@ -693,7 +691,7 @@ impl MQFQ {
                     let t = tid.clone();
                     let ctr_man = self.cont_manager.clone();
                     let id = g.gpu_hardware_id;
-                    tokio_spawn_thread(async move { ctr_man.make_room_on_gpu(t, -diff, id).await });
+                    tokio::spawn(async move { ctr_man.make_room_on_gpu(t, -diff, id).await });
                 }
             }
             if let Some(g) = ctr.device_resource().as_ref() {
@@ -736,7 +734,7 @@ impl MQFQ {
                     let r = invoke.registration.clone();
                     let s = self.clone();
                     let tid = invoke.tid.clone();
-                    h = Some(tokio_spawn_thread(async move {
+                    h = Some(tokio::spawn(async move {
                         s.free_memory_for_reg(r, tid, gpu_token.gpu_id).await
                     }));
                 }
@@ -756,7 +754,7 @@ impl MQFQ {
                     let s = self.clone();
                     let tid = invoke.tid.clone();
                     let ctr = n.container.clone();
-                    tokio_spawn_thread(async move { s.free_memory_for_ctr(ctr, tid).await });
+                    tokio::spawn(async move { s.free_memory_for_ctr(ctr, tid).await });
                 }
                 n
             },

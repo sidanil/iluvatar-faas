@@ -7,7 +7,7 @@ use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_rpc::rpc::{ContainerState, InvokeAsyncRequest, InvokeRequest, RegisterRequest};
 use rstest::rstest;
 use std::time::Duration;
-use utils::build_test_services;
+use utils::test_invoker_svc;
 
 /// Only 1 CPU to force serial execution
 fn build_serial_overrides(invoker_q: &str) -> Vec<(String, String)> {
@@ -44,7 +44,6 @@ fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
 mod invoke {
     use super::*;
 
-    #[iluvatar_library::live_test]
     #[rstest]
     #[case("fcfs")]
     #[case("minheap")]
@@ -53,9 +52,10 @@ mod invoke {
     #[case("none")]
     #[case("cold_pri")]
     #[case("scaling")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invocation_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
-        let (_log, _cfg, cm, invok_svc, _reg, _, _) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),
@@ -98,7 +98,6 @@ mod invoke {
         }
     }
 
-    #[iluvatar_library::live_test]
     #[rstest]
     #[case("fcfs")]
     #[case("minheap")]
@@ -107,9 +106,10 @@ mod invoke {
     #[case("none")]
     #[case("cold_pri")]
     #[case("scaling")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_start_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
-        let (_log, _cfg, _cm, invok_svc, _reg, _, _) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),
@@ -155,7 +155,6 @@ mod invoke_async {
     use super::*;
     use iluvatar_library::transaction::gen_tid;
 
-    #[iluvatar_library::live_test]
     #[rstest]
     #[case("fcfs")]
     #[case("minheap")]
@@ -164,9 +163,10 @@ mod invoke_async {
     #[case("none")]
     #[case("cold_pri")]
     #[case("scaling")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invocation_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
-        let (_log, _cfg, cm, invok_svc, _reg, _, _) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),
@@ -222,7 +222,6 @@ mod invoke_async {
         }
     }
 
-    #[iluvatar_library::live_test]
     #[rstest]
     #[case("fcfs")]
     #[case("minheap")]
@@ -231,10 +230,11 @@ mod invoke_async {
     #[case("none")]
     #[case("cold_pri")]
     #[case("scaling")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_start_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
         let tid = gen_tid();
-        let (_log, _cfg, _cm, invok_svc, _reg, _, _) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),

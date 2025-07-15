@@ -24,7 +24,6 @@ use crate::{
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
-use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::{threading::tokio_waiter_thread, threading::EventualItem, transaction::TransactionId};
@@ -282,7 +281,7 @@ impl GpuQueueingInvoker {
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, invoker_svc, batch, permit), fields(tid=tid)))]
     fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, batch: GpuBatch, permit: DroppableToken, tid: &TransactionId) {
         debug!(tid = tid, "Launching invocation thread for queued item");
-        tokio_spawn_thread(async move {
+        tokio::spawn(async move {
             invoker_svc.invocation_worker_thread(batch, permit).await;
         });
     }
@@ -329,7 +328,7 @@ impl GpuQueueingInvoker {
                     // unwrap is safe, we either have a container or will go to the top of the loop
                     let ctr = ctr_lock.as_ref().unwrap().container.clone();
                     let t = item.tid.clone();
-                    tokio_spawn_thread(async move { ctr.move_from_device(&t).await });
+                    tokio::spawn(async move { ctr.move_from_device(&t).await });
                 }
             }
             // unwrap is safe, we either have a container or will go to the top of the loop
@@ -367,7 +366,7 @@ impl GpuQueueingInvoker {
             if let Some(ctr_lck) = &ctr_lock {
                 let ctr = ctr_lck.container.clone();
                 let t = INVOKER_GPU_QUEUE_WORKER_TID.clone();
-                tokio_spawn_thread(async move { ctr.move_from_device(&t).await });
+                tokio::spawn(async move { ctr.move_from_device(&t).await });
             }
         }
         drop(ctr_lock);
@@ -435,7 +434,7 @@ impl GpuQueueingInvoker {
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let result = invoke_on_container(
+        let (data, duration, compute_type, state) = invoke_on_container(
             &item.registration,
             &item.json_args,
             &item.tid,
@@ -449,9 +448,10 @@ impl GpuQueueingInvoker {
             &self.clock,
             &self.device_tput,
         )
-        .await;
+        .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        result
+        // self.signal.notify_waiters();
+        Ok((data, duration, compute_type, state))
     }
 
     fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
@@ -534,7 +534,7 @@ mod gpu_batch_tests {
         ))
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn one_item_correct() {
         let clock = get_global_clock(&"clock".to_string()).unwrap();
         let b = GpuBatch::new(item(&clock), 1.0);
@@ -542,7 +542,7 @@ mod gpu_batch_tests {
         assert_eq!(b.est_queue_time(), 1.0);
     }
 
-    #[iluvatar_library::sim_test]
+    #[test]
     fn added_items_correct() {
         let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut b = GpuBatch::new(item(&clock), 1.0);

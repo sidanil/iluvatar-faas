@@ -4,11 +4,11 @@ use crate::{
     trace::safe_cmp,
     utils::{
         load_benchmark_data, save_result_json, worker_prewarm, worker_register, CompletedControllerInvocation,
-        LoadType, VERSION,
+        LoadType, RunType, VERSION,
     },
 };
 use anyhow::Result;
-use iluvatar_library::threading::tokio_spawn_thread;
+use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute, utils::port::Port};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData;
 use iluvatar_worker_library::worker_api::config::{Configuration, WorkerConfig};
@@ -49,8 +49,8 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms
         Some(0) => 0,
         Some(p) => match func.mean_iat {
             Some(iat_ms) => {
-                let mut prewarms = f64::ceil(func.warm_dur_ms.unwrap_or(0) as f64 * 1.0 / iat_ms) as u32;
-                let cold_prewarms = f64::ceil(func.cold_dur_ms.unwrap_or(0) as f64 * 1.0 / iat_ms) as u32;
+                let mut prewarms = f64::ceil(func.warm_dur_ms as f64 * 1.0 / iat_ms) as u32;
+                let cold_prewarms = f64::ceil(func.cold_dur_ms as f64 * 1.0 / iat_ms) as u32;
                 prewarms = max(prewarms, cold_prewarms);
                 min(min(prewarms, p), max_prewarms)
             },
@@ -127,7 +127,7 @@ fn map_from_benchmark(
             let mut chosen_cold_time_ms = chosen.1;
 
             for (name, avg_warm, avg_cold, image) in device_data.iter() {
-                if func.warm_dur_ms.unwrap_or(0) as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
+                if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
                     chosen_name.clone_from(name);
                     chosen_image.clone_from(image);
                     chosen_warm_time_ms = *avg_warm;
@@ -137,8 +137,8 @@ fn map_from_benchmark(
 
             if func.image_name.is_none() {
                 info!(tid=tid, function=%&func.func_name, chosen_code=%chosen_name, "Function mapped to benchmark code");
-                func.cold_dur_ms = Some(chosen_cold_time_ms as u64);
-                func.warm_dur_ms = Some(chosen_warm_time_ms as u64);
+                func.cold_dur_ms = chosen_cold_time_ms as u64;
+                func.warm_dur_ms = chosen_warm_time_ms as u64;
                 func.chosen_name = Some(chosen_name);
                 func.image_name = Some(chosen_image);
             }
@@ -214,6 +214,7 @@ fn map_from_args(
 }
 
 pub fn map_functions_to_prep(
+    _runtype: RunType,
     load_type: LoadType,
     func_json_data_path: &Option<String>,
     funcs: &mut HashMap<String, Function>,
@@ -234,10 +235,11 @@ pub fn map_functions_to_prep(
     }
 }
 
-async fn worker_prewarm_functions(
+fn worker_prewarm_functions(
     prewarm_data: &HashMap<String, Function>,
     host: &str,
     port: Port,
+    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
 ) -> Result<()> {
     let mut prewarm_calls = vec![];
@@ -277,47 +279,69 @@ async fn worker_prewarm_functions(
         let mut handles = vec![];
         for _ in 0..4 {
             match prewarm_calls.pop() {
-                Some(p) => handles.push(tokio_spawn_thread(p)),
+                Some(p) => handles.push(rt.spawn(p)),
                 None => break,
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            std::thread::sleep(Duration::from_millis(10));
         }
         for handle in handles {
-            handle.await??;
+            rt.block_on(handle)??;
         }
     }
     Ok(())
 }
 
-pub async fn worker_prepare_functions(
+pub fn worker_prepare_functions(
+    runtype: RunType,
     funcs: &mut HashMap<String, Function>,
     host: &str,
     port: Port,
     load_type: LoadType,
     func_data: Option<String>,
+    rt: &TokioRuntime,
     prewarms: Option<u32>,
     trace_pth: &str,
     factory: &Arc<WorkerAPIFactory>,
     max_prewarms: u32,
     tid: &TransactionId,
 ) -> Result<()> {
-    map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth, max_prewarms, tid)?;
-    prepare_worker(funcs, host, port, factory, &func_data).await
+    map_functions_to_prep(
+        runtype,
+        load_type,
+        &func_data,
+        funcs,
+        prewarms,
+        trace_pth,
+        max_prewarms,
+        tid,
+    )?;
+    prepare_worker(funcs, host, port, runtype, rt, factory, &func_data)
 }
 
-async fn prepare_worker(
+fn prepare_worker(
     funcs: &mut HashMap<String, Function>,
     host: &str,
     port: Port,
+    runtype: RunType,
+    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
     func_data: &Option<String>,
 ) -> Result<()> {
-    worker_wait_reg(funcs, port, host, factory, func_data).await?;
-    worker_prewarm_functions(funcs, host, port, factory).await
+    match runtype {
+        RunType::Live => {
+            worker_wait_reg(funcs, rt, port, host, factory, func_data)?;
+            worker_prewarm_functions(funcs, host, port, rt, factory)
+        },
+        RunType::Simulation => {
+            worker_wait_reg(funcs, rt, port, host, factory, func_data)?;
+            worker_prewarm_functions(funcs, host, port, rt, factory)
+        },
+    }
 }
 
-async fn worker_wait_reg(
+fn worker_wait_reg(
     funcs: &HashMap<String, Function>,
+    rt: &TokioRuntime,
     port: Port,
     host: &str,
     factory: &Arc<WorkerAPIFactory>,
@@ -360,7 +384,7 @@ async fn worker_wait_reg(
                 },
                 None => None,
             };
-            handles.push(tokio_spawn_thread(async move {
+            handles.push(rt.spawn(async move {
                 worker_register(
                     f_c,
                     &VERSION,
@@ -378,7 +402,7 @@ async fn worker_wait_reg(
             }));
         }
         for h in handles {
-            let (_s, _d, _s2) = h.await??;
+            let (_s, _d, _s2) = rt.block_on(h)??;
         }
         if !cont {
             return Ok(());

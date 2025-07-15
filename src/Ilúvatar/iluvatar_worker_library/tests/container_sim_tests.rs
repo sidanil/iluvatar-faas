@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{background_test_invoke, build_test_services, resolve_invoke, sim_args, wait_for_queue_len};
+use crate::utils::{background_test_invoke, resolve_invoke, sim_args, sim_test_services, wait_for_queue_len};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
@@ -69,9 +69,9 @@ fn two_gpu_env() -> Vec<(String, String)> {
 
 mod compute_iso_matching {
     use super::*;
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_docker_works() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -100,9 +100,9 @@ mod compute_iso_matching {
         assert_eq!(c.container.compute_type(), Compute::CPU);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_ctr_works() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -119,10 +119,10 @@ mod compute_iso_matching {
         assert_eq!(c.container.compute_type(), Compute::CPU);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn two_compute_works() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -155,9 +155,9 @@ mod compute_iso_matching {
         assert_eq!(c.container.compute_type(), Compute::GPU);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prefer_ctd_container() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let request = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -186,10 +186,10 @@ mod compute_iso_matching {
         assert_eq!(c.container.compute_type(), Compute::CPU);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cant_request_not_registered_compute_gpu() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -201,10 +201,10 @@ mod compute_iso_matching {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cant_request_not_registered_compute_cpu() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -216,9 +216,9 @@ mod compute_iso_matching {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_gpu_fails_register() {
-        let (_log, _cfg, _cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -239,9 +239,9 @@ mod compute_iso_matching {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_fpga_fails_register() {
-        let (_log, _cfg, _cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -268,10 +268,10 @@ mod gpu {
     use super::*;
     use iluvatar_library::clock::ContainerTimeFormatter;
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_container_must_use_docker() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let request = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -296,10 +296,10 @@ mod gpu {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_forces_docker() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -332,10 +332,10 @@ mod gpu {
         assert_eq!(c.container.compute_type(), Compute::GPU);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn polymorphic_invoke_only_one_compute() {
         let env = build_gpu_env();
-        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -365,10 +365,10 @@ mod gpu {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_docker_works() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -383,10 +383,10 @@ mod gpu {
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn returned_container_ok() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -410,10 +410,10 @@ mod gpu {
         assert_eq!(c1_cont.container_id(), c2.container.container_id());
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unhealthy_not_used() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -442,10 +442,10 @@ mod gpu {
         assert!(c2.container.is_healthy(), "New container should be healthy");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_resource_limiting() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -469,16 +469,26 @@ mod gpu {
         );
     }
 
-    #[iluvatar_library::sim_test(worker_threads = 10)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_container_removed() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        let mut reg2 = gpu_reg();
-        reg2.function_name = "test2".to_string();
+        let reg2 = RegisterRequest {
+            function_name: "test2".to_string(),
+            function_version: "test".to_string(),
+            cpus: 1,
+            memory: 128,
+            parallel_invokes: 1,
+            image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+            transaction_id: "testTID".to_string(),
+            compute: Compute::GPU.bits(),
+            isolate: Isolation::DOCKER.bits(),
+            ..Default::default()
+        };
         let func2 = reg
             .register(reg2, &TEST_TID)
             .await
@@ -486,7 +496,7 @@ mod gpu {
         cm.prewarm(&func, &TEST_TID, Compute::GPU)
             .await
             .unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let ctr = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
             EventualItem::Future(_) => panic!("Should have gotten prewarmed container"),
             EventualItem::Now(n) => n,
@@ -498,7 +508,7 @@ mod gpu {
             "Got incorrect container"
         );
         drop(ctr);
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let ctr = match cm.acquire_container(&func2, &TEST_TID, Compute::GPU) {
             EventualItem::Future(f) => f.await,
@@ -513,12 +523,12 @@ mod gpu {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn multiple_invokes_blocks() {
         let formatter = ContainerTimeFormatter::new(&TEST_TID)
             .unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
         let env = build_gpu_env();
-        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -608,12 +618,12 @@ mod gpu {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn diff_funcs_multiple_invokes_blocks() {
         let formatter = ContainerTimeFormatter::new(&TEST_TID)
             .unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
         let env = build_gpu_env();
-        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func1 = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -721,10 +731,10 @@ mod gpu {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn two_gpu_allowed() {
         let env = two_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -755,7 +765,6 @@ mod gpu_queueuing {
     use super::*;
     use iluvatar_library::clock::ContainerTimeFormatter;
 
-    #[iluvatar_library::sim_test]
     #[rstest]
     #[case("fcfs")]
     #[case("oldest_batch")]
@@ -763,10 +772,11 @@ mod gpu_queueuing {
     #[case("eedf")]
     #[case("sized_batch")]
     #[case("paella")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn queues_work(#[case] invoker_q: &str) {
         let mut env = build_gpu_env();
         env.push(("invocation.queue_policies.gpu".to_string(), invoker_q.to_string()));
-        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -780,13 +790,13 @@ mod gpu_queueuing {
         assert_eq!(invoke.compute, Compute::GPU, "Invoke compute must be GPU");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn oldest_queued_batch_run() {
         let formatter = ContainerTimeFormatter::new(&TEST_TID)
             .unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
         let mut env = build_gpu_env();
         env.push(("invocation.queue_policies.gpu".to_string(), "oldest_batch".to_string()));
-        let (_log, _cfg, _cm, invoker, reg, _cmap, gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
         println!("{:?}", _cfg);
         let func1 = reg
             .register(gpu_reg(), &TEST_TID)
@@ -892,13 +902,13 @@ mod gpu_queueuing {
         );
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fcfs_ordering_kept() {
         let mut env = build_gpu_env();
         env.push(("invocation.queue_policies.GPU".to_string(), "fcfs".to_string()));
         let formatter = ContainerTimeFormatter::new(&TEST_TID)
             .unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
-        let (_, _, _, invoker, reg, _cmap, gpu) = build_test_services(None, Some(env), None).await;
+        let (_, _, _, invoker, reg, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
         let func1 = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -1008,10 +1018,10 @@ mod gpu_queueuing {
 mod clean_tests {
     use super::*;
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn all_cpu_container_removed() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1046,10 +1056,10 @@ mod clean_tests {
         assert_eq!(*cpus, 1);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn all_gpu_container_removed() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1083,10 +1093,10 @@ mod clean_tests {
         assert_eq!(*cpus, 1);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_container_removed() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1121,10 +1131,10 @@ mod clean_tests {
         assert_eq!(*cpus, 1);
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_container_removed() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1163,14 +1173,14 @@ mod enqueueing_tests {
     use super::*;
     use iluvatar_library::char_map::Chars;
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn picks_gpu_queueing_exec() {
         let mut env = build_gpu_env();
         env.push((
             "invocation.enqueueing_policy".to_string(),
             "ShortestExecTime".to_string(),
         ));
-        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1197,14 +1207,14 @@ mod enqueueing_tests {
         assert_eq!(invoke.compute, Compute::GPU, "Item should have been run on CPU");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn picks_cpu_queueing_exec() {
         let mut env = build_gpu_env();
         env.push((
             "invocation.enqueueing_policy".to_string(),
             "ShortestExecTime".to_string(),
         ));
-        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1231,11 +1241,11 @@ mod enqueueing_tests {
         assert_eq!(invoke.compute, Compute::CPU, "Item should have been run on CPU");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn always_cpu() {
         let mut env = build_gpu_env();
         env.push(("invocation.enqueueing_policy".to_string(), "AlwaysCPU".to_string()));
-        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1260,11 +1270,11 @@ mod enqueueing_tests {
         assert_eq!(invoke.compute, Compute::CPU, "Item should have been run on CPU");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_faster_cpu_path_chosen() {
         let mut env = build_gpu_env();
         env.push(("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()));
-        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1291,7 +1301,7 @@ mod enqueueing_tests {
         assert_eq!(invoke.compute, Compute::GPU, "Item should have been run on GPU");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_faster_gpu_path_chosen() {
         let env = vec![
             ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
@@ -1310,7 +1320,7 @@ mod enqueueing_tests {
             ),
             ("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()),
         ];
-        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1337,11 +1347,11 @@ mod enqueueing_tests {
         assert_eq!(invoke.compute, Compute::CPU, "Item should have been run on CPU");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarm_faster_cpu_path_chosen() {
         let mut env = build_gpu_env();
         env.push(("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()));
-        let (_log, _cfg, cm, invoker, reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invoker, reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1374,7 +1384,7 @@ mod enqueueing_tests {
         assert_eq!(invoke.compute, Compute::CPU, "Item should have been run on CPU");
     }
 
-    #[iluvatar_library::sim_test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarm_faster_gpu_path_chosen() {
         let env = vec![
             ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
@@ -1394,7 +1404,7 @@ mod enqueueing_tests {
             ("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()),
             ("invocation.queues.GPU".to_string(), "serial".to_string()),
         ];
-        let (_log, _cfg, cm, invoker, reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invoker, reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
