@@ -485,7 +485,14 @@ impl ContainerdIsolation {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
-        let mut args = vec!["images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
+        let mut args = vec!["images", "pull"];
+        // ZFS snapshotter doesn't support --platform flag
+        if self.config.snapshotter == "overlayfs" {
+            args.push("--platform");
+            args.push("linux/amd64");
+        }
+        args.push("--snapshotter");
+        args.push(self.config.snapshotter.as_str());
         let auth_str;
         if let Some(docker) = &self.docker_config {
             if let Some(auth) = &docker.auth {
@@ -497,6 +504,7 @@ impl ContainerdIsolation {
             }
         }
         args.push(image_name);
+        info!(tid=tid, snapshotter=%self.config.snapshotter, image=%image_name, command=?args, "Executing ctr image pull command");
         let output = iluvatar_library::utils::execute_cmd("/usr/bin/ctr", args, None, tid);
         match output {
             Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),

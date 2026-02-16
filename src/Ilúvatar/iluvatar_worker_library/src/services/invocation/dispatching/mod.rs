@@ -1,12 +1,14 @@
 use crate::services::invocation::queueing::DeviceQueue;
 use iluvatar_library::types::Compute;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::Arc; 
 
 pub mod greedy_weight;
 pub mod landlord;
 pub mod popular;
 pub mod queueing_dispatcher;
+pub mod weighted_random;
+mod mice;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues
@@ -16,6 +18,7 @@ pub enum EnqueueingPolicy {
     /// Randomly assign functions to any queue they support, with equal probability.
     Random,
     /// Use ratio of CPU/GPU
+    WeightedRandom,
     Speedup,
     /// Mix of speedup ratio and estimated time
     EstSpeedup,
@@ -47,6 +50,7 @@ pub enum EnqueueingPolicy {
     PopularQueueLenDispatch,
     LeastPopular,
     MICE,
+    Greedy,
 }
 
 type QueueMap = HashMap<Compute, Arc<dyn DeviceQueue>>;

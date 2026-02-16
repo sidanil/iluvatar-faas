@@ -65,9 +65,8 @@ def plot_one_exp(results_dir: str, parser: LogParser):
     fig, ax = plt.subplots()
     plt.tight_layout()
     fig.set_size_inches(5, 3)
-
     for worker in parser.worker_parsers:
-        ax.plot(worker.status_df["norm_time"].dt.total_seconds(), worker.status_df["cpu_queue_len"], label=worker.results_log.split('/')[-1].split('.')[0])
+        ax.plot(worker.status_df["norm_time"].dt.total_seconds(), worker.status_df["cpu_len"], label=worker.results_log.split('/')[-1].split('.')[0])
 
     ax.legend()
     ax.set_ylabel("Queue Length")
@@ -91,7 +90,7 @@ def run_load_balancer(algo: str):
         "target": RunTarget.CONTROLLER,
         "controller_thread_sleep_ms": 2000,
         "controller_log_level": "info",
-        "controller_load_metric": "loadavg",
+        "controller_load_metric": "LoadAvg",
         "controller_bounded_ceil": 1.4,
         "controller_popular_pct": 0.2,
         "controller_algorithm": algo,

@@ -393,23 +393,20 @@ impl ContainerIsolationService for DockerIsolation {
         let auth = match &self.docker_config {
             Some(cfg) => {
                 if cfg.avoid_pull {
-                    let image_name_no_hub = rf.image_name.split('/').skip(1).collect::<Vec<&str>>().join("/");
+                    // Query Docker with the full image name (including registry)
                     let list = Some(ListImagesOptions {
                         all: false,
-                        filters: HashMap::from_iter([("reference", vec![image_name_no_hub.as_ref()])]),
+                        filters: HashMap::from_iter([("reference", vec![rf.image_name.as_ref()])]),
                         digests: false,
                     });
 
-                    debug!(tid = tid, query = image_name_no_hub, "querying images");
+                    debug!(tid = tid, query = %rf.image_name, "querying images");
                     match self.docker_api.list_images(list).await {
                         Ok(ls) => {
-                            for image in ls {
-                                for tag in &image.repo_tags {
-                                    if tag == &image_name_no_hub {
-                                        info!(tid=tid, image=?image, "image found, skipping pull");
-                                        return Ok(());
-                                    }
-                                }
+                            if !ls.is_empty() {
+                                info!(tid=tid, image_name=%rf.image_name, "image found locally, skipping pull");
+                                self.pulled_images.insert(rf.image_name.clone());
+                                return Ok(());
                             }
                         },
                         Err(e) => warn!(tid=tid, error=%e, "Failed to list docker images"),

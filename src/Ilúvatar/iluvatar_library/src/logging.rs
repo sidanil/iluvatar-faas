@@ -102,7 +102,7 @@ fn panic_hook() {
                     location.line(),
                     backtrace
                 );
-            },
+            }
             None => tracing::error!(
                 target: "panic",
                 "thread '{}' panicked at '{}'{:?}",
@@ -168,7 +168,9 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Filter<S> for WorkerSpanFilte
                 if let Some(worker_name) = finder.worker_name {
                     // set WorkerSpanFilter on this span, use `replace` in case it changes beneath us
                     // other thread will be putting in identical value
-                    span.extensions_mut().replace(WorkerSpanFilter { worker: worker_name });
+                    span.extensions_mut().replace(WorkerSpanFilter {
+                        worker: worker_name,
+                    });
                 }
             }
         }
@@ -197,7 +199,7 @@ fn file_logger<S: Subscriber + for<'span> LookupSpan<'span>, P: AsRef<Path>>(
                 info!(tid = tid, "making log dir");
                 ensure_dir(&folder_path)?;
                 std::fs::canonicalize(&folder_path)?
-            },
+            }
             _ => anyhow::bail!(
                 "Failed to canonicalize log file '{:?}', error: '{}'",
                 folder_path.as_ref().to_str(),
@@ -220,7 +222,7 @@ fn file_logger<S: Subscriber + for<'span> LookupSpan<'span>, P: AsRef<Path>>(
                         warn!(tid=tid, error=%e, "Log file was deleted from under while this was trying to delete");
                     }
                 }
-            },
+            }
         };
     }
 
@@ -319,7 +321,7 @@ pub fn start_simulation_tracing(
                 );
             }
             Ok(drops)
-        },
+        }
         Err(e) => {
             #[cfg(not(feature = "full_spans"))]
             {
@@ -331,13 +333,13 @@ pub fn start_simulation_tracing(
             }
             warn!(tid=tid, error=%e, "Global tracing subscriber was already set");
             Ok(vec![])
-        },
+        }
     }
 }
 
 #[allow(dyn_drop)]
 fn stdout_layer<S: Subscriber + for<'span> LookupSpan<'span>>(
-    layers: &mut Vec<Box<(dyn Layer<S> + Send + Sync + 'static)>>,
+    layers: &mut Vec<Box<dyn Layer<S> + Send + Sync + 'static>>,
     drops: &mut Vec<Box<dyn Drop>>,
     tid: &TransactionId,
 ) -> Result<()> {
@@ -396,10 +398,10 @@ pub fn start_tracing(config: &Arc<LoggingConfig>, tid: &TransactionId) -> Result
             panic_hook();
             info!(tid = tid, "Logger initialized");
             Ok(drops)
-        },
+        }
         Err(e) => {
             warn!(tid=tid, error=%e, "Global tracing subscriber was already set");
             Ok(vec![])
-        },
+        }
     }
 }

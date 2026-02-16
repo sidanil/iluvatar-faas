@@ -1,5 +1,7 @@
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
+use crate::services::invocation::dispatching::mice::Mice;
+use crate::services::invocation::dispatching::weighted_random::WeightedRandom;
 use crate::services::invocation::dispatching::{
     landlord::get_landlord, popular::get_popular, EnqueueingPolicy, QueueMap, NO_ESTIMATE,
 };
@@ -133,9 +135,15 @@ impl QueueingDispatcher {
             &energy,
         )?;
         let mut que_map = HashMap::from_iter([(Compute::CPU, cpu_q)]);
-        if let Some(gpu_q) =
-            Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid, &cpu, &gpu, gpu_config)?
-        {
+        if let Some(gpu_q) = Self::get_invoker_gpu_queue(
+            &invocation_config,
+            &cmap,
+            &cont_manager,
+            tid,
+            &cpu,
+            &gpu,
+            gpu_config,
+        )? {
             que_map.insert(Compute::GPU, gpu_q);
         }
         let (_handle, rx) = tokio_logging_thread(
@@ -145,7 +153,14 @@ impl QueueingDispatcher {
             Self::log_queue_info,
         )?;
 
-        let policy = Self::get_dispatch_algo(&invocation_config, cmap.clone(), que_map.clone(), &gpu, reg, tid)?;
+        let policy = Self::get_dispatch_algo(
+            &invocation_config,
+            cmap.clone(),
+            que_map.clone(),
+            &gpu,
+            reg,
+            tid,
+        )?;
         let svc = Arc::new(QueueingDispatcher {
             que_map,
             policy,
@@ -221,7 +236,7 @@ impl QueueingDispatcher {
                 } else {
                     anyhow::bail!("Unkonwn GPU queue {}", q);
                 }
-            },
+            }
             None => anyhow::bail!("GPU queue was not specified"),
         }
     }
@@ -280,18 +295,22 @@ impl QueueingDispatcher {
                     }
                     if enq.is_none() {
                         if let Some(arg) = args.take() {
-                            enq = Some(self.make_enqueue(reg, arg, &tid, insert_t, comp_time, load));
+                            enq =
+                                Some(self.make_enqueue(reg, arg, &tid, insert_t, comp_time, load));
                         }
                     }
                     if let Some(e) = &enq {
                         q.enqueue_item(e)?;
                         enqueues += 1;
                     }
-                },
+                }
             }
         }
         if enqueues == 0 {
-            bail_error!(tid = tid, "Unable to enqueue function invocation, not matching compute");
+            bail_error!(
+                tid = tid,
+                "Unable to enqueue function invocation, not matching compute"
+            );
         }
         enq.ok_or_else(|| anyhow::anyhow!("Enqueued item was never created"))
     }
@@ -318,29 +337,47 @@ impl QueueingDispatcher {
             EnqueueingPolicy::UCB1 => Ok(Arc::new(Ucb1::new(&cmap, tid)?)),
             EnqueueingPolicy::MWUA => Ok(Arc::new(Mwua::new(&cmap, tid)?)),
             EnqueueingPolicy::HitTput => Ok(Arc::new(HitTput::new(que_map, &cmap, tid)?)),
-            EnqueueingPolicy::EstSpeedup => Ok(Arc::new(EstSpeedup::new(invocation_config.clone(), cmap, que_map))),
-            EnqueueingPolicy::RunningAvgEstSpeedup => {
-                Ok(Arc::new(RunningAvgEstSpeedup::new(invocation_config, cmap, que_map)))
-            },
-            EnqueueingPolicy::QueueAdjustAvgEstSpeedup => Ok(Arc::new(QueueAdjustAvgEstSpeedup::new(
+            EnqueueingPolicy::EstSpeedup => Ok(Arc::new(EstSpeedup::new(
                 invocation_config.clone(),
                 cmap,
                 que_map,
             ))),
-            EnqueueingPolicy::Speedup => Ok(Arc::new(Speedup::new(invocation_config.clone(), cmap))),
+            EnqueueingPolicy::RunningAvgEstSpeedup => Ok(Arc::new(RunningAvgEstSpeedup::new(
+                invocation_config,
+                cmap,
+                que_map,
+            ))),
+            EnqueueingPolicy::QueueAdjustAvgEstSpeedup => Ok(Arc::new(
+                QueueAdjustAvgEstSpeedup::new(invocation_config.clone(), cmap, que_map),
+            )),
+            EnqueueingPolicy::Speedup => {
+                Ok(Arc::new(Speedup::new(invocation_config.clone(), cmap)))
+            }
+            EnqueueingPolicy::Greedy => Ok(Arc::new(Greedy::new(cmap))),
+            EnqueueingPolicy::WeightedRandom => Ok(Arc::new(WeightedRandom::new(
+                invocation_config.clone(),
+                &cmap,
+                tid,
+            )?)),
             EnqueueingPolicy::Landlord
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
-            | EnqueueingPolicy::LandlordFixed => get_landlord(*policy, &cmap, invocation_config, que_map),
+            | EnqueueingPolicy::LandlordFixed => {
+                get_landlord(*policy, &cmap, invocation_config, que_map)
+            }
             EnqueueingPolicy::Popular
             | EnqueueingPolicy::PopularEstTimeDispatch
             | EnqueueingPolicy::PopularQueueLenDispatch
             | EnqueueingPolicy::LeastPopular
             | EnqueueingPolicy::TopAvg => get_popular(*policy, &cmap, que_map),
-            EnqueueingPolicy::GreedyWeights => {
-                GreedyWeights::boxed(&cmap, que_map, &invocation_config.greedy_weight_config, reg, gpu)
-            },
-            EnqueueingPolicy::MICE => Ok(Arc::new(MICE::new(
+            EnqueueingPolicy::GreedyWeights => GreedyWeights::boxed(
+                &cmap,
+                que_map,
+                &invocation_config.greedy_weight_config,
+                reg,
+                gpu,
+            ),
+            EnqueueingPolicy::MICE => Ok(Arc::new(Mice::new(
                 invocation_config.clone(),
                 cmap.clone(),
                 que_map,
@@ -384,8 +421,24 @@ impl QueueingDispatcher {
         }
 
         match reg.supported_compute {
-            Compute::CPU => self.enqueue_compute(reg, json_args, tid, Compute::CPU, insert_t, NO_ESTIMATE, NO_ESTIMATE),
-            Compute::GPU => self.enqueue_compute(reg, json_args, tid, Compute::GPU, insert_t, NO_ESTIMATE, NO_ESTIMATE),
+            Compute::CPU => self.enqueue_compute(
+                reg,
+                json_args,
+                tid,
+                Compute::CPU,
+                insert_t,
+                NO_ESTIMATE,
+                NO_ESTIMATE,
+            ),
+            Compute::GPU => self.enqueue_compute(
+                reg,
+                json_args,
+                tid,
+                Compute::GPU,
+                insert_t,
+                NO_ESTIMATE,
+                NO_ESTIMATE,
+            ),
             _ => {
                 let (chosen_compute, load, est_time) = self.policy.choose(reg, &tid);
                 if self.invocation_config.log_details() {
@@ -394,8 +447,16 @@ impl QueueingDispatcher {
                         _ => info!(tid=tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss"),
                     }
                 }
-                self.enqueue_compute(reg, json_args, tid, chosen_compute, insert_t, est_time, load)
-            },
+                self.enqueue_compute(
+                    reg,
+                    json_args,
+                    tid,
+                    chosen_compute,
+                    insert_t,
+                    est_time,
+                    load,
+                )
+            }
         }
     }
 }
@@ -453,7 +514,7 @@ impl DispatchPolicy for HitTput {
                 let rgpu = pgpu / egpu;
                 let rcpu = pcpu / ecpu;
 
-                // choose the maximum of the two? or probabilistically?
+                // choose the maximum of the two? or probabilistically?><
                 let n = proportional_selection(rcpu, rgpu);
                 return match n {
                     Ordering::Less => (Compute::CPU, lcpu, ecpu),
@@ -566,9 +627,13 @@ impl DispatchPolicy for Ucb1 {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         // device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
         // Pick device with lowest weight and dispatch
-        let (cpu_t, gpu_t) = self
-            .cmap
-            .get_2(&reg.fqdn, Chars::E2ECpu, Value::Avg, Chars::E2EGpu, Value::Avg);
+        let (cpu_t, gpu_t) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::E2ECpu,
+            Value::Avg,
+            Chars::E2EGpu,
+            Value::Avg,
+        );
 
         let lck = self.dispatch_state.read();
         let total_dispatch = lck.total_dispatch as f64;
@@ -584,7 +649,9 @@ impl DispatchPolicy for Ucb1 {
 
         let device_wts = HashMap::from([(Compute::CPU, cpu_wt), (Compute::GPU, gpu_wt)]);
 
-        let min_val_pair = device_wts.iter().min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
+        let min_val_pair = device_wts
+            .iter()
+            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
 
         // pick smallest of the two
         let selected_device = min_val_pair.unwrap().0;
@@ -595,6 +662,42 @@ impl DispatchPolicy for Ucb1 {
     }
 }
 
+struct Greedy {
+    cmap: WorkerCharMap,
+}
+
+impl Greedy {
+    pub fn new(cmap: WorkerCharMap) -> Self {
+        Self { cmap }
+    }
+}
+
+impl DispatchPolicy for Greedy {
+    fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
+        // Fetch predicted CPU and GPU execution times
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
+
+        // Pure greedy:
+        // pick whichever compute type yields the *minimum predicted exec time*
+        info!(
+            tid = %tid,
+            cpu = cpu,
+            gpu = gpu,
+            "Greedy Dispatch info"
+        );
+        if cpu <= gpu {
+            (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE)
+        } else {
+            (Compute::GPU, NO_ESTIMATE, NO_ESTIMATE)
+        }
+    }
+}
 struct All;
 impl DispatchPolicy for All {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
@@ -606,7 +709,11 @@ impl DispatchPolicy for Random {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         // unwrap safe, has to have some compute entry to get this far
         let v: Vec<Compute> = reg.supported_compute.iter().collect();
-        (*v.choose(&mut rand::rng()).unwrap(), NO_ESTIMATE, NO_ESTIMATE)
+        (
+            *v.choose(&mut rand::rng()).unwrap(),
+            NO_ESTIMATE,
+            NO_ESTIMATE,
+        )
     }
 }
 
@@ -713,7 +820,11 @@ struct EstSpeedup {
     invocation_config: Arc<InvocationConfig>,
 }
 impl EstSpeedup {
-    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
+    pub fn new(
+        invocation_config: Arc<InvocationConfig>,
+        cmap: WorkerCharMap,
+        que_map: QueueMap,
+    ) -> Self {
         Self {
             que_map,
             cmap,
@@ -747,128 +858,128 @@ impl DispatchPolicy for EstSpeedup {
         }
     }
 }
+//
+// #[allow(unused)]
+// struct MICEState {
+//     cpu_thresh: f64,             // run on cpu if size below this
+//     gpu_thresh: f64,             // run on gpu if size below this
+//     control_interval: u32,       // M, number of invocations before we readjust thresholds. Countdown. Defaults 10
+//     cpu_dispatched: f64,         // Total service dispatched on CPU in this interval, so far
+//     gpu_dispatched: f64,         // Total service on GPU in this interval
+//     time_marker: OffsetDateTime, //When the current epoch started
+//     rho_cap_cpu: f64,
+// }
 
-#[allow(unused)]
-struct MICEState {
-    cpu_thresh: f64,             // run on cpu if size below this
-    gpu_thresh: f64,             // run on gpu if size below this
-    control_interval: u32,       // M, number of invocations before we readjust thresholds. Countdown. Defaults 10
-    cpu_dispatched: f64,         // Total service dispatched on CPU in this interval, so far
-    gpu_dispatched: f64,         // Total service on GPU in this interval
-    time_marker: OffsetDateTime, //When the current epoch started
-    rho_cap_cpu: f64,
-}
-
-/// This is the machine-learned "ICE" policy from the paper:
-/// On Sequential Dispatching Policies.  Esa Hyytiä et.al.
-/// This paper has some more fundamental details: Minimizing Slowdown in Heterogeneous Size-Aware Dispatching Systems.
-/// The basic idea is to have the lower backlogged server (in this case usually the CPU) to get first-pick.
-/// Each server has thresholds for the job size. Thus if the CPU is less backlogged, then it gets to pick the invocation if it is less than tau_cpu in size. Else the GPU gets it.
-/// The backlog is the estimated e2e latency.
-/// Every M invocations, there will be some control loop to increment/decrement the (CPU) threshold based on the dispatched load in this M window, based on the observed/average service time of the invocation.
-/// The other input needed is some load threshold for the devices (again mainly the CPU)
-#[allow(unused)]
-#[allow(non_camel_case_types)]
-struct MICE {
-    que_map: QueueMap,
-    cmap: WorkerCharMap,
-    invocation_config: Arc<InvocationConfig>,
-    clock: Clock,
-    //hmm, move this all part of mice-state under a single mutex?
-    mstate: Mutex<MICEState>,
-}
-impl MICE {
-    pub fn new(
-        invocation_config: Arc<InvocationConfig>,
-        cmap: WorkerCharMap,
-        que_map: QueueMap,
-        tid: &TransactionId,
-    ) -> Result<Self> {
-        let clock = get_global_clock(tid)?;
-        Ok(Self {
-            que_map,
-            cmap,
-            invocation_config,
-            mstate: Mutex::new(MICEState {
-                cpu_thresh: 10.0, // Should pass all these arguments
-                gpu_thresh: 9999.0,
-                control_interval: 10,
-                cpu_dispatched: 0.0,
-                gpu_dispatched: 0.0,
-                time_marker: clock.now(),
-                rho_cap_cpu: 100.0,
-            }),
-            clock,
-        })
-    }
-}
-impl DispatchPolicy for MICE {
-    fn choose(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
-        // let (x_cpu, x_gpu) = self.cmap.get_2(
-        //     &reg.fqdn,
-        //     Chars::CpuExecTime,
-        //     Value::Avg,
-        //     Chars::GpuExecTime,
-        //     Value::Avg,
-        // );
-
-        //let delta_t = self.clock.now().as_seconds_f64() - self.time_marker ;
-        //let rho_cpu = *self.cpu_dispatched.lock()/delta_t;
-        //let rho_gpu = *self.gpu_dispatched.lock()/delta_t;
-
-        let epsilon = 0.01; // This should be smaller than the function service times. 10 milliseconds seems ok.
-        let mut ms = self.mstate.lock();
-        ms.control_interval -= 1;
-        let delta_t = (self.clock.now() - ms.time_marker).as_seconds_f64();
-
-        match ms.control_interval {
-            0 => {
-                // Compute the new thresholds
-                let rho_cpu = ms.cpu_dispatched / delta_t;
-                if rho_cpu < ms.rho_cap_cpu {
-                    ms.cpu_thresh += epsilon;
-                } else {
-                    ms.cpu_thresh -= epsilon;
-                }
-                // This is asymmetric and assumes GPU will need infinite threshold, so no update needed for it
-
-                // reset the counters and the time?
-                ms.control_interval = 10;
-                ms.cpu_dispatched = 0.0;
-                ms.gpu_dispatched = 0.0;
-            },
-            _ => {},
-        };
-
-        (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE)
-
-        // let mut opts = vec![];
-        // for c in reg.supported_compute.into_iter() {
-        //     if let Some(q) = self.que_map.get(&c) {
-        //         opts.push((q.est_completion_time(reg, tid), c));
-        //     }
-        // }
-        // match opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
-        //     Some(((est, load), c)) => {
-        // 	match c {
-        // 	    &Compute::CPU => {
-        // 		// CPU has lower backlog. Check if size of invok is under the threshold
-        // 		if x_cpu < self.cpu_thresh {
-        // 		let mut cd = self.cpu_dispatched.lock();
-        // 		*cd += x_cpu ;
-        // 		return (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE);
-        // 	    }
-        // 		else { // function is bigger than the current CPU threshold! GPU!
-
-        // 	    }
-
-        // 	    }
-        // 	}
-        //     }
-
-        // }
-    }
-}
+// /// This is the machine-learned "ICE" policy from the paper:
+// /// On Sequential Dispatching Policies.  Esa Hyytiä et.al.
+// /// This paper has some more fundamental details: Minimizing Slowdown in Heterogeneous Size-Aware Dispatching Systems.
+// /// The basic idea is to have the lower backlogged server (in this case usually the CPU) to get first-pick.
+// /// Each server has thresholds for the job size. Thus if the CPU is less backlogged, then it gets to pick the invocation if it is less than tau_cpu in size. Else the GPU gets it.
+// /// The backlog is the estimated e2e latency.
+// /// Every M invocations, there will be some control loop to increment/decrement the (CPU) threshold based on the dispatched load in this M window, based on the observed/average service time of the invocation.
+// /// The other input needed is some load threshold for the devices (again mainly the CPU)
+// #[allow(unused)]
+// #[allow(non_camel_case_types)]
+// struct MICE {
+//     que_map: QueueMap,
+//     cmap: WorkerCharMap,
+//     invocation_config: Arc<InvocationConfig>,
+//     clock: Clock,
+//     //hmm, move this all part of mice-state under a single mutex?
+//     mstate: Mutex<MICEState>,
+// }
+// impl MICE {
+//     pub fn new(
+//         invocation_config: Arc<InvocationConfig>,
+//         cmap: WorkerCharMap,
+//         que_map: QueueMap,
+//         tid: &TransactionId,
+//     ) -> Result<Self> {
+//         let clock = get_global_clock(tid)?;
+//         Ok(Self {
+//             que_map,
+//             cmap,
+//             invocation_config,
+//             mstate: Mutex::new(MICEState {
+//                 cpu_thresh: 10.0, // Should pass all these arguments
+//                 gpu_thresh: 9999.0,
+//                 control_interval: 10,
+//                 cpu_dispatched: 0.0,
+//                 gpu_dispatched: 0.0,
+//                 time_marker: clock.now(),
+//                 rho_cap_cpu: 100.0,
+//             }),
+//             clock,
+//         })
+//     }
+// }
+// impl DispatchPolicy for MICE {
+//     fn choose(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
+//         // let (x_cpu, x_gpu) = self.cmap.get_2(
+//         //     &reg.fqdn,
+//         //     Chars::CpuExecTime,
+//         //     Value::Avg,
+//         //     Chars::GpuExecTime,
+//         //     Value::Avg,
+//         // );
+//
+//         //let delta_t = self.clock.now().as_seconds_f64() - self.time_marker ;
+//         //let rho_cpu = *self.cpu_dispatched.lock()/delta_t;
+//         //let rho_gpu = *self.gpu_dispatched.lock()/delta_t;
+//
+//         let epsilon = 0.01; // This should be smaller than the function service times. 10 milliseconds seems ok.
+//         let mut ms = self.mstate.lock();
+//         ms.control_interval -= 1;
+//         let delta_t = (self.clock.now() - ms.time_marker).as_seconds_f64();
+//
+//         match ms.control_interval {
+//             0 => {
+//                 // Compute the new thresholds
+//                 let rho_cpu = ms.cpu_dispatched / delta_t;
+//                 if rho_cpu < ms.rho_cap_cpu {
+//                     ms.cpu_thresh += epsilon;
+//                 } else {
+//                     ms.cpu_thresh -= epsilon;
+//                 }
+//                 // This is asymmetric and assumes GPU will need infinite threshold, so no update needed for it
+//
+//                 // reset the counters and the time?
+//                 ms.control_interval = 10;
+//                 ms.cpu_dispatched = 0.0;
+//                 ms.gpu_dispatched = 0.0;
+//             },
+//             _ => {},
+//         };
+//
+//         (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE)
+//
+//         // let mut opts = vec![];
+//         // for c in reg.supported_compute.into_iter() {
+//         //     if let Some(q) = self.que_map.get(&c) {
+//         //         opts.push((q.est_completion_time(reg, tid), c));
+//         //     }
+//         // }
+//         // match opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
+//         //     Some(((est, load), c)) => {
+//         // 	match c {
+//         // 	    &Compute::CPU => {
+//         // 		// CPU has lower backlog. Check if size of invok is under the threshold
+//         // 		if x_cpu < self.cpu_thresh {
+//         // 		let mut cd = self.cpu_dispatched.lock();
+//         // 		*cd += x_cpu ;
+//         // 		return (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE);
+//         // 	    }
+//         // 		else { // function is bigger than the current CPU threshold! GPU!
+//
+//         // 	    }
+//
+//         // 	    }
+//         // 	}
+//         //     }
+//
+//         // }
+//     }
+// }
 
 struct RunningAvgEstSpeedup {
     que_map: QueueMap,
@@ -876,7 +987,11 @@ struct RunningAvgEstSpeedup {
     running_avg_speedup: Mutex<f64>,
 }
 impl RunningAvgEstSpeedup {
-    pub fn new(invocation_config: &Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
+    pub fn new(
+        invocation_config: &Arc<InvocationConfig>,
+        cmap: WorkerCharMap,
+        que_map: QueueMap,
+    ) -> Self {
         Self {
             running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             que_map,
@@ -925,7 +1040,11 @@ struct QueueAdjustAvgEstSpeedup {
     running_avg_speedup: Mutex<f64>,
 }
 impl QueueAdjustAvgEstSpeedup {
-    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
+    pub fn new(
+        invocation_config: Arc<InvocationConfig>,
+        cmap: WorkerCharMap,
+        que_map: QueueMap,
+    ) -> Self {
         Self {
             running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             que_map,
@@ -969,7 +1088,7 @@ impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
                         }
                     }
                     (*c, *load, *est)
-                },
+                }
                 None => (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE),
             }
         } else {
@@ -1000,26 +1119,44 @@ impl Invoker for QueueingDispatcher {
                 }
                 info!(tid=tid, fqdn=%reg.fqdn, e2etime=%e2etime, compute=%result_ptr.compute, "Invocation complete");
                 Ok(queued.result_ptr.clone())
-            },
+            }
             false => {
                 bail_error!(
                     tid = tid,
                     "Invocation was signaled completion but completion value was not set"
                 )
-            },
+            }
         }
     }
-    fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String> {
+    fn async_invocation(
+        &self,
+        reg: Arc<RegisteredFunction>,
+        json_args: String,
+        tid: TransactionId,
+    ) -> Result<String> {
         let invoke = self.enqueue_new_invocation(&reg, json_args, tid)?;
         self.async_functions.insert_async_invoke(invoke)
     }
-    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<iluvatar_rpc::rpc::InvokeResponse> {
+    fn invoke_async_check(
+        &self,
+        cookie: &str,
+        tid: &TransactionId,
+    ) -> Result<iluvatar_rpc::rpc::InvokeResponse> {
         self.async_functions.invoke_async_check(cookie, tid)
     }
 
     /// The queue length of both CPU and GPU queues
     fn queue_len(&self) -> InvokerLoad {
-        InvokerLoad(self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect())
+        InvokerLoad(
+            self.que_map
+                .iter()
+                .map(|q| (*q.0, q.1.queue_load()))
+                .collect(),
+        )
+        // InvokerLoad {
+        //     num_running_funcs: self.running_funcs(),
+        //     queues: self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect(),
+        // }
     }
 
     /// The number of functions currently running

@@ -10,6 +10,7 @@ use iluvatar_library::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::services::invocation::dispatching::weighted_random::WeightedRandomConfig;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Configuration {
@@ -191,6 +192,9 @@ pub struct InvocationConfig {
     pub mqfq_config: Option<Arc<MqfqConfig>>,
     pub landlord_config: Option<Arc<LandlordConfig>>,
     pub greedy_weight_config: Option<Arc<GreedyWeightConfig>>,
+    // #[serde(default)]
+    // pub weighted_random_config: WeightedRandomConfig,
+    pub weighted_random_config: Option<Arc<WeightedRandomConfig>>,
 }
 impl InvocationConfig {
     pub fn log_details(&self) -> bool {
